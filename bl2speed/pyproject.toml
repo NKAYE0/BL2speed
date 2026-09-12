@@ -1,6 +1,6 @@
 [project]
 name = "bl2speed"
-version = "0.1.0"
+version = "1.0.0"
 authors = [{ name = "NK" }]
 description = """\
 Increases sprint speed in Borderlands 2 by a configurable multiplier, \

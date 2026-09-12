@@ -6,10 +6,14 @@
 # the sprint key is held. We only ever change that effect's
 # BaseValueScaleConstant (how big the bonus is), and we remember the stock
 # value so it can be put back exactly when the mod is turned off.
+#
+# Works on both SDKs - everything game-facing goes through _sdk.
 
 from __future__ import annotations
 
-import unrealsdk
+import math
+
+from . import _sdk
 
 SPRINT_CLASS = "SprintDefinition"
 SPRINT_PATH = "GD_PlayerShared.Sprint.SprintDefinition_Default"
@@ -18,42 +22,39 @@ LOG_PREFIX = "[Speed]"
 
 # Stock values, captured the first time we successfully read the object.
 # _stock_scale is None until then, which also means "nothing to restore".
-_stock_scale: float | None = None
+_stock_scale = None  # type: float | None
 
 # True if the sprint effect multiplies movement speed (MT_Scale) rather than
 # adding a flat amount. Only in the multiply case can we work out an exact
 # final speed multiplier.
-_is_scale_modifier: bool = False
+_is_scale_modifier = False
 
 
-def _find_sprint_definition() -> object | None:
+def _find_sprint_definition():
     """Find the sprint definition object, or return None if it isn't there."""
-    try:
-        sprint_def = unrealsdk.find_object(SPRINT_CLASS, SPRINT_PATH)
-    except Exception:  # noqa: BLE001 - some SDK builds raise instead of returning None
-        sprint_def = None
-
+    sprint_def = _sdk.find_object(SPRINT_CLASS, SPRINT_PATH)
     if sprint_def is None:
-        unrealsdk.logging.warning(
-            f"{LOG_PREFIX} Could not find {SPRINT_CLASS} '{SPRINT_PATH}'."
-            f" Sprint speed left unchanged.",
+        _sdk.log_warning(
+            "{0} Could not find {1} '{2}'. Sprint speed left unchanged.".format(
+                LOG_PREFIX, SPRINT_CLASS, SPRINT_PATH,
+            ),
         )
     return sprint_def
 
 
-def _find_sprint_effect(sprint_def: object) -> tuple[object, object] | None:
+def _find_sprint_effect(sprint_def):
     """Return (effects_array, sprint_speed_effect), or None if unavailable."""
     effects = getattr(sprint_def, "AttributeEffects", None)
     if effects is None or len(effects) == 0:
-        unrealsdk.logging.warning(
-            f"{LOG_PREFIX} The sprint definition has no attribute effects."
-            f" Sprint speed left unchanged.",
+        _sdk.log_warning(
+            "{0} The sprint definition has no attribute effects."
+            " Sprint speed left unchanged.".format(LOG_PREFIX),
         )
         return None
     return effects, effects[0]
 
 
-def _capture_stock_values(effect: object) -> None:
+def _capture_stock_values(effect) -> None:
     """Record the game's own values once, so we can restore and calibrate."""
     global _stock_scale, _is_scale_modifier
 
@@ -63,22 +64,27 @@ def _capture_stock_values(effect: object) -> None:
     _stock_scale = float(effect.BaseModifierValue.BaseValueScaleConstant)
 
     modifier_type = getattr(effect, "ModifierType", None)
-    _is_scale_modifier = modifier_type is not None and "MT_Scale" in str(modifier_type)
+    _is_scale_modifier, reason = _sdk.is_scale_modifier(modifier_type)
 
-    unrealsdk.logging.info(
-        f"{LOG_PREFIX} Read stock sprint values:"
-        f" BaseValueConstant={float(effect.BaseModifierValue.BaseValueConstant)}"
-        f" BaseValueScaleConstant={_stock_scale}"
-        f" ModifierType={modifier_type}",
+    _sdk.log_info(
+        "{0} Read stock sprint values:"
+        " BaseValueConstant={1}"
+        " BaseValueScaleConstant={2}"
+        " ModifierType={3} (multiplies={4}, from {5})".format(
+            LOG_PREFIX,
+            float(effect.BaseModifierValue.BaseValueConstant),
+            _stock_scale,
+            modifier_type,
+            _is_scale_modifier,
+            reason,
+        ),
     )
 
 
-def _scale_for_multiplier(effect: object, multiplier: float) -> float:
+def _scale_for_multiplier(effect, multiplier: float) -> float:
     """Work out the BaseValueScaleConstant needed for the chosen multiplier."""
-    assert _stock_scale is not None
-
     base_value = float(effect.BaseModifierValue.BaseValueConstant)
-    stock_bonus = base_value * _stock_scale
+    stock_bonus = base_value * (_stock_scale or 0.0)
 
     # If the bonus is pulled from another attribute or an initialisation
     # definition, the constant above isn't the whole story and the maths below
@@ -99,33 +105,54 @@ def _scale_for_multiplier(effect: object, multiplier: float) -> float:
     # Fallback: we can't calculate the exact final speed, so scale the sprint
     # bonus itself instead. Still faster, but the chosen number won't be an
     # exact multiple of normal sprint speed.
-    unrealsdk.logging.warning(
-        f"{LOG_PREFIX} Sprint effect isn't a plain multiplier"
-        f" (ModifierType={getattr(effect, 'ModifierType', None)},"
-        f" BaseValueConstant={base_value}, other source={uses_other_source})."
-        f" Scaling the sprint bonus by {multiplier} instead of the final speed.",
+    _sdk.log_warning(
+        "{0} Sprint effect isn't a plain multiplier (ModifierType={1},"
+        " BaseValueConstant={2}, other source={3})."
+        " Scaling the sprint bonus by {4} instead of the final speed.".format(
+            LOG_PREFIX,
+            getattr(effect, "ModifierType", None),
+            base_value,
+            uses_other_source,
+            multiplier,
+        ),
     )
     return (_stock_scale or 1.0) * multiplier
 
 
-def _write_scale(effects: object, effect: object, new_scale: float) -> None:
-    """Write the new scale constant back, one level at a time.
-
-    Reading a struct out of the game can hand back either a live reference or
-    a copy depending on SDK version, so each level is assigned back explicitly
-    to make sure the change actually lands.
-    """
+def _write_scale(effects, effect, new_scale: float) -> bool:
+    """Write the new scale constant back, then check that it actually landed."""
     modifier_value = effect.BaseModifierValue
     modifier_value.BaseValueScaleConstant = new_scale
-    effect.BaseModifierValue = modifier_value
-    effects[0] = effect
+
+    # Depending on SDK version, reading a struct hands back either a live
+    # reference or a copy, so assign each level back as well. Not every SDK
+    # allows assigning into the array, hence the guard.
+    try:
+        effect.BaseModifierValue = modifier_value
+        effects[0] = effect
+    except (TypeError, AttributeError, ValueError):
+        pass
+
+    # The game stores this as a 32-bit float, so what reads back is never
+    # exactly the 64-bit value Python sent. Compare with a tolerance well
+    # inside float32's precision rather than demanding an exact match.
+    written = float(effects[0].BaseModifierValue.BaseValueScaleConstant)
+    if not math.isclose(written, new_scale, rel_tol=1e-5, abs_tol=1e-6):
+        _sdk.log_warning(
+            "{0} Tried to set the sprint scale to {1} but the game still"
+            " reads {2}. Sprint speed may be unchanged.".format(
+                LOG_PREFIX, new_scale, written,
+            ),
+        )
+        return False
+    return True
 
 
 def apply(multiplier: float) -> bool:
     """Set sprint speed to `multiplier` times the game's normal sprint speed.
 
     Returns True if the change was made, False if the game object couldn't be
-    read (in which case nothing was touched).
+    read or the write didn't take.
     """
     sprint_def = _find_sprint_definition()
     if sprint_def is None:
@@ -139,11 +166,13 @@ def apply(multiplier: float) -> bool:
     _capture_stock_values(effect)
 
     new_scale = _scale_for_multiplier(effect, multiplier)
-    _write_scale(effects, effect, new_scale)
+    if not _write_scale(effects, effect, new_scale):
+        return False
 
-    unrealsdk.logging.info(
-        f"{LOG_PREFIX} Sprint speed set to {multiplier}x"
-        f" (scale constant {new_scale}).",
+    _sdk.log_info(
+        "{0} Sprint speed set to {1}x (scale constant {2}).".format(
+            LOG_PREFIX, multiplier, new_scale,
+        ),
     )
     return True
 
@@ -163,6 +192,8 @@ def restore() -> bool:
         return False
     effects, effect = found
 
-    _write_scale(effects, effect, _stock_scale)
-    unrealsdk.logging.info(f"{LOG_PREFIX} Sprint speed restored to normal.")
+    if not _write_scale(effects, effect, _stock_scale):
+        return False
+
+    _sdk.log_info("{0} Sprint speed restored to normal.".format(LOG_PREFIX))
     return True
