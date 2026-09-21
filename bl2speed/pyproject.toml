@@ -13,3 +13,6 @@ Source = "https://github.com/NKAYE0/BL2speed"
 [tool.sdkmod]
 name = "Speed"
 license = { name = "GPL-3.0", url = "https://www.gnu.org/licenses/gpl-3.0.en.html" }
+coop_support = "ClientSide"
+supported_games = ["BL2"]
+download = "https://github.com/NKAYE0/BL2speed/releases/latest/download/bl2speed.sdkmod"
