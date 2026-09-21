@@ -18,9 +18,11 @@ as fast.
 
 - Walking, crouching and vehicle speeds are unchanged. Only sprinting is
   affected, and disabling the mod restores the game's own value exactly.
-- Client side — it changes your own game only, and other players don't need it.
-  At very high multipliers the host may see you lag behind or snap back, since
-  the game wasn't built for that speed.
+- **Coop is untested.** The mod only edits your own game's sprint definition
+  and touches no networking code, so it shouldn't affect anyone else — but BL2
+  corrects player movement against the host, and I haven't tested whether a
+  faster sprint gets corrected. Expect the possibility of rubber-banding,
+  especially at high multipliers. Reports welcome.
 - Air control is deliberately untouched, so momentum behaves exactly as vanilla
   once you leave the ground. At `3x` and above you will overshoot ledges and
   jumps you're used to.

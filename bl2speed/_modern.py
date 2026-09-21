@@ -64,5 +64,6 @@ def register() -> object:
         options=[speed_multiplier],
         on_enable=on_enable,
         on_disable=on_disable,
-        coop_support=CoopSupport.ClientSide,
+        # Untested in coop - single player only so far.
+        coop_support=CoopSupport.Unknown,
     )
