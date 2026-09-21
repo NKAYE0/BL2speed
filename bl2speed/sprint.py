@@ -30,28 +30,24 @@ _stock_scale = None  # type: float | None
 _is_scale_modifier = False
 
 
-def _find_sprint_definition():
-    """Find the sprint definition object, or return None if it isn't there."""
+def _find_sprint_effects():
+    """Return the sprint definition's attribute effects, or None if unavailable."""
     sprint_def = _sdk.find_object(SPRINT_CLASS, SPRINT_PATH)
     if sprint_def is None:
         _sdk.log_warning(
-            "{0} Could not find {1} '{2}'. Sprint speed left unchanged.".format(
-                LOG_PREFIX, SPRINT_CLASS, SPRINT_PATH,
-            ),
+            f"{LOG_PREFIX} Could not find {SPRINT_CLASS} '{SPRINT_PATH}'."
+            f" Sprint speed left unchanged.",
         )
-    return sprint_def
+        return None
 
-
-def _find_sprint_effect(sprint_def):
-    """Return (effects_array, sprint_speed_effect), or None if unavailable."""
     effects = getattr(sprint_def, "AttributeEffects", None)
     if effects is None or len(effects) == 0:
         _sdk.log_warning(
-            "{0} The sprint definition has no attribute effects."
-            " Sprint speed left unchanged.".format(LOG_PREFIX),
+            f"{LOG_PREFIX} The sprint definition has no attribute effects."
+            f" Sprint speed left unchanged.",
         )
         return None
-    return effects, effects[0]
+    return effects
 
 
 def _capture_stock_values(effect) -> None:
@@ -67,29 +63,26 @@ def _capture_stock_values(effect) -> None:
     _is_scale_modifier, reason = _sdk.is_scale_modifier(modifier_type)
 
     _sdk.log_info(
-        "{0} Read stock sprint values:"
-        " BaseValueConstant={1}"
-        " BaseValueScaleConstant={2}"
-        " ModifierType={3} (multiplies={4}, from {5})".format(
-            LOG_PREFIX,
-            float(effect.BaseModifierValue.BaseValueConstant),
-            _stock_scale,
-            modifier_type,
-            _is_scale_modifier,
-            reason,
-        ),
+        f"{LOG_PREFIX} Read stock sprint values:"
+        f" BaseValueConstant={float(effect.BaseModifierValue.BaseValueConstant)}"
+        f" BaseValueScaleConstant={_stock_scale}"
+        f" ModifierType={modifier_type}"
+        f" (multiplies={_is_scale_modifier}, from {reason})",
     )
 
 
 def _scale_for_multiplier(effect, multiplier: float) -> float:
-    """Work out the BaseValueScaleConstant needed for the chosen multiplier."""
-    base_value = float(effect.BaseModifierValue.BaseValueConstant)
-    stock_bonus = base_value * (_stock_scale or 0.0)
+    """Work out the BaseValueScaleConstant needed for the chosen multiplier.
+
+    Only called after _capture_stock_values, so _stock_scale is set.
+    """
+    modifier_value = effect.BaseModifierValue
+    base_value = float(modifier_value.BaseValueConstant)
+    stock_bonus = base_value * _stock_scale
 
     # If the bonus is pulled from another attribute or an initialisation
     # definition, the constant above isn't the whole story and the maths below
     # would be wrong.
-    modifier_value = effect.BaseModifierValue
     uses_other_source = (
         getattr(modifier_value, "BaseValueAttribute", None) is not None
         or getattr(modifier_value, "InitializationDefinition", None) is not None
@@ -106,21 +99,16 @@ def _scale_for_multiplier(effect, multiplier: float) -> float:
     # bonus itself instead. Still faster, but the chosen number won't be an
     # exact multiple of normal sprint speed.
     _sdk.log_warning(
-        "{0} Sprint effect isn't a plain multiplier (ModifierType={1},"
-        " BaseValueConstant={2}, other source={3})."
-        " Scaling the sprint bonus by {4} instead of the final speed.".format(
-            LOG_PREFIX,
-            getattr(effect, "ModifierType", None),
-            base_value,
-            uses_other_source,
-            multiplier,
-        ),
+        f"{LOG_PREFIX} Sprint effect isn't a plain multiplier"
+        f" (BaseValueConstant={base_value}, other source={uses_other_source})."
+        f" Scaling the sprint bonus by {multiplier} instead of the final speed.",
     )
-    return (_stock_scale or 1.0) * multiplier
+    return _stock_scale * multiplier
 
 
-def _write_scale(effects, effect, new_scale: float) -> bool:
+def _write_scale(effects, new_scale: float) -> bool:
     """Write the new scale constant back, then check that it actually landed."""
+    effect = effects[0]
     modifier_value = effect.BaseModifierValue
     modifier_value.BaseValueScaleConstant = new_scale
 
@@ -139,10 +127,8 @@ def _write_scale(effects, effect, new_scale: float) -> bool:
     written = float(effects[0].BaseModifierValue.BaseValueScaleConstant)
     if not math.isclose(written, new_scale, rel_tol=1e-5, abs_tol=1e-6):
         _sdk.log_warning(
-            "{0} Tried to set the sprint scale to {1} but the game still"
-            " reads {2}. Sprint speed may be unchanged.".format(
-                LOG_PREFIX, new_scale, written,
-            ),
+            f"{LOG_PREFIX} Tried to set the sprint scale to {new_scale} but the"
+            f" game still reads {written}. Sprint speed may be unchanged.",
         )
         return False
     return True
@@ -154,25 +140,18 @@ def apply(multiplier: float) -> bool:
     Returns True if the change was made, False if the game object couldn't be
     read or the write didn't take.
     """
-    sprint_def = _find_sprint_definition()
-    if sprint_def is None:
+    effects = _find_sprint_effects()
+    if effects is None:
         return False
 
-    found = _find_sprint_effect(sprint_def)
-    if found is None:
-        return False
-    effects, effect = found
+    _capture_stock_values(effects[0])
 
-    _capture_stock_values(effect)
-
-    new_scale = _scale_for_multiplier(effect, multiplier)
-    if not _write_scale(effects, effect, new_scale):
+    new_scale = _scale_for_multiplier(effects[0], multiplier)
+    if not _write_scale(effects, new_scale):
         return False
 
     _sdk.log_info(
-        "{0} Sprint speed set to {1}x (scale constant {2}).".format(
-            LOG_PREFIX, multiplier, new_scale,
-        ),
+        f"{LOG_PREFIX} Sprint speed set to {multiplier}x (scale constant {new_scale}).",
     )
     return True
 
@@ -183,17 +162,12 @@ def restore() -> bool:
         # We never changed anything, so there is nothing to undo.
         return True
 
-    sprint_def = _find_sprint_definition()
-    if sprint_def is None:
+    effects = _find_sprint_effects()
+    if effects is None:
         return False
 
-    found = _find_sprint_effect(sprint_def)
-    if found is None:
-        return False
-    effects, effect = found
-
-    if not _write_scale(effects, effect, _stock_scale):
+    if not _write_scale(effects, _stock_scale):
         return False
 
-    _sdk.log_info("{0} Sprint speed restored to normal.".format(LOG_PREFIX))
+    _sdk.log_info(f"{LOG_PREFIX} Sprint speed restored to normal.")
     return True

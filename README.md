@@ -61,7 +61,7 @@ bl2speed/                  # the mod package (this folder = the release contents
     _modern.py                  # front end for mods_base
     _legacy.py                   # front end for ModMenu
     pyproject.toml                # mod metadata (read by the SDK mod database)
-package.py                          # builds both release files
+package.py                          # builds the release file
 ```
 
 The SDK-specific parts are confined to `_sdk.py`, `_modern.py` and

@@ -8,9 +8,7 @@ from __future__ import annotations
 NAME = "Speed"
 AUTHOR = "NK"
 VERSION = "1.0.0"
-DESCRIPTION = (
-    "Sprint faster. Normal walking speed is not changed."
-)
+DESCRIPTION = "Sprint faster. Normal walking speed is not changed."
 
 # Menu text -> how many times faster than a normal sprint. 1x is the game's
 # own sprint speed, i.e. no change.

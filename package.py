@@ -23,16 +23,13 @@ ROOT = Path(__file__).parent
 MOD_FOLDER = ROOT / "bl2speed"
 DIST = ROOT / "dist"
 
-# Files and folders that should never end up in a release.
-EXCLUDED_DIRS = {"__pycache__", ".git", ".idea", ".vscode"}
+# Build leftovers that should never end up in a release.
+EXCLUDED_DIRS = {"__pycache__"}
 EXCLUDED_SUFFIXES = {".pyc", ".pyo"}
-EXCLUDED_NAMES = set()
 
 
 def should_include(relative_path: Path) -> bool:
     if any(part in EXCLUDED_DIRS for part in relative_path.parts):
-        return False
-    if relative_path.name in EXCLUDED_NAMES:
         return False
     return relative_path.suffix not in EXCLUDED_SUFFIXES
 
@@ -50,9 +47,8 @@ def check_versions_match() -> str:
 
     if config_match.group(1) != pyproject_match.group(1):
         raise SystemExit(
-            "Version mismatch: _config.py says {0}, pyproject.toml says {1}".format(
-                config_match.group(1), pyproject_match.group(1),
-            ),
+            f"Version mismatch: _config.py says {config_match.group(1)},"
+            f" pyproject.toml says {pyproject_match.group(1)}",
         )
     return config_match.group(1)
 
@@ -62,12 +58,12 @@ def build(output: Path, files: list[Path]) -> None:
         for path in files:
             # Stored path keeps the "bl2speed/..." prefix the SDKs expect.
             archive.write(path, path.relative_to(MOD_FOLDER.parent).as_posix())
-    print("Built {0}".format(output))
+    print(f"Built {output}")
 
 
 def main() -> None:
     if not (MOD_FOLDER / "__init__.py").is_file():
-        raise SystemExit("No __init__.py found in {0}".format(MOD_FOLDER))
+        raise SystemExit(f"No __init__.py found in {MOD_FOLDER}")
 
     version = check_versions_match()
 
@@ -83,7 +79,7 @@ def main() -> None:
     if "--legacy" in sys.argv:
         build(DIST / "bl2speed.zip", files)
 
-    print("Version {0}".format(version))
+    print(f"Version {version}")
 
 
 if __name__ == "__main__":
