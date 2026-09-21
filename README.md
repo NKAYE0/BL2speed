@@ -24,6 +24,7 @@ Built for the modern
 3. Launch the game and enable **Speed** in the mods menu.
 4. Pick a speed under its options. The default is `1.5x`.
 
+<<<<<<< HEAD
 ## How it works
 
 Sprinting in BL2 comes from one shared game object:
@@ -106,6 +107,8 @@ To also list it on the SDK mod database, add a markdown file to the
 repo's `pyproject.toml` raw URL — the site reads the name, version, author and
 license from it automatically.
 
+=======
+>>>>>>> 96e7b8eed4dadd4a2b1fb203aaaa32a278ad4ce2
 ## License
 
 GPL-3.0 — see [LICENSE](LICENSE).
