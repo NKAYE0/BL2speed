@@ -1,10 +1,10 @@
 [project]
 name = "bl2speed"
-version = "1.0.1"
+version = "1.1.0"
 authors = [{ name = "NK" }]
 description = """\
 Increases sprint speed in Borderlands 2 by a configurable multiplier, \
-leaving normal walking speed untouched.
+leaving normal walking speed untouched. Optionally boosts air control too.
 """
 
 [project.urls]
